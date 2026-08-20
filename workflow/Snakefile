@@ -1,0 +1,98 @@
+"""Optional orchestration over the same scripts run_all.sh/.ps1 use, with
+explicit inputs/outputs so partial reruns work. Run from the repo root:
+`snakemake -j1 --snakefile workflow/Snakefile all`.
+"""
+RSCRIPT = "Rscript"
+PYTHON = "python"
+
+rule all:
+    input:
+        "results/figures/KaplanMeier_TCGA_Nunes.pdf",
+        "results/figures/HES1_HES5_by_FBXW7_WNT_Nunes.pdf",
+        "results/figures/Barplots_CXCR4_pos_neg.png",
+        "results/figures/UMAP_CXCR4_high_low.pdf",
+        "results/figures/UMAP_3Doners.pdf",
+        "results/figures/Palantir_CellRank_C168_trajectory.pdf",
+
+rule download_tcga_nunes:
+    output:
+        touch("data/raw/.tcga_nunes_downloaded")
+    shell:
+        "{RSCRIPT} scripts/00_download_data.R && touch {output}"
+
+rule download_pelka:
+    output:
+        touch("data/raw/.pelka_downloaded")
+    shell:
+        "{PYTHON} scripts/00_download_data.py && touch {output}"
+
+rule preprocess_bulk:
+    input:
+        "data/raw/.tcga_nunes_downloaded"
+    output:
+        "data/metadata/checksums.md5"
+    shell:
+        "{RSCRIPT} scripts/01_preprocess_bulk.R"
+
+rule preprocess_scrna:
+    input:
+        "data/raw/.pelka_downloaded"
+    output:
+        "data/processed/pelka/pelka_epithelial_qc.h5ad"
+    shell:
+        "{PYTHON} scripts/02_preprocess_scrna.py"
+
+rule signature_scores_bulk:
+    input:
+        "data/metadata/checksums.md5"
+    output:
+        "results/tables/notch_gsva_tcga.tsv",
+        "results/tables/notch_gsva_nunes.tsv"
+    shell:
+        "{RSCRIPT} scripts/03_signature_scores_bulk.R"
+
+rule cxcr4_stratification:
+    input:
+        "data/processed/pelka/pelka_epithelial_qc.h5ad"
+    output:
+        "results/figures/Barplots_CXCR4_pos_neg.png",
+        "data/processed/pelka/Pelka_CXCR4_high_processed.h5ad",
+        "data/processed/pelka/Pelka_CXCR4_low_processed.h5ad"
+    shell:
+        "{PYTHON} scripts/05_cxcr4_stratification.py"
+
+rule dimreduction_umap:
+    input:
+        "data/processed/pelka/Pelka_CXCR4_high_processed.h5ad",
+        "data/processed/pelka/Pelka_CXCR4_low_processed.h5ad"
+    output:
+        "results/figures/UMAP_CXCR4_high_low.pdf",
+        "results/figures/UMAP_CXCR4_high_low_patients.pdf",
+        "results/figures/UMAP_3Doners.pdf",
+        "data/processed/pelka/Pelka_CXCR4+_processed_C168.h5ad"
+    shell:
+        "{PYTHON} scripts/06_dimreduction_umap.py"
+
+rule trajectory_palantir:
+    input:
+        "data/processed/pelka/Pelka_CXCR4+_processed_C168.h5ad"
+    output:
+        "results/figures/Palantir_CellRank_C168_trajectory.pdf"
+    shell:
+        "{PYTHON} scripts/07_trajectory_palantir.py"
+
+rule survival_km:
+    input:
+        "data/metadata/checksums.md5"
+    output:
+        "results/figures/KaplanMeier_TCGA_Nunes.pdf"
+    shell:
+        "{RSCRIPT} scripts/08_survival_km.R"
+
+rule mutation_expression_boxplots:
+    input:
+        "data/metadata/checksums.md5"
+    output:
+        "results/figures/HES1_HES5_by_FBXW7_WNT_Nunes.pdf"
+    shell:
+        "{RSCRIPT} scripts/09_mutation_expression_boxplots.R"

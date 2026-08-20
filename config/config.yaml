@@ -1,0 +1,156 @@
+seed: 42
+
+paths:
+  data_raw: data/raw
+  data_processed: data/processed
+  data_metadata: data/metadata
+  results_figures: results/figures
+  results_tables: results/tables
+  results_logs: results/logs
+
+data_sources:
+  tcga:
+    project_coad: TCGA-COAD
+    project_read: TCGA-READ
+    workflow_type_expression: STAR - Counts
+    maf_pipeline: mutect2  
+  nunes:
+    arrayexpress_accession: E-MTAB-12862
+    source_doi: "10.1038/s41586-024-07769-3"
+    n_patients: 1063
+  pelka:
+    broad_scp_accession: SCP1162
+    geo_accession: GSE178341
+    source_doi: "10.1016/j.cell.2021.08.003"
+
+
+qc_scrna:
+  min_genes: 1000
+  max_genes: 10000
+  max_pct_mt: 5.0
+  min_cells_per_gene: 10
+  min_cells_per_tumor: 20   # patients with fewer tumor cells are dropped before CXCR4 stratification
+
+cxcr4_stratification:
+  positivity_rule: "log-normalized expression > 0"
+  positivity_threshold: 0.0
+  high_fraction_cutoff: 0.20   # >= this fraction of CXCR4+ cells -> CXCR4-high
+  low_fraction_cutoff: 0.05    # <= this fraction of CXCR4+ cells -> CXCR4-low
+  # patients strictly between the two cutoffs are CXCR4-intermediate and excluded
+
+dimensionality_reduction:
+  cohort_level:
+    n_hvg: 3000
+    hvg_flavor: seurat
+    n_pcs: 40
+    pca_solver: arpack
+    n_neighbors: 15
+    leiden_resolution: 0.2
+    leiden_flavor: igraph
+    leiden_n_iterations: 2
+    scale_clip_max: 10
+  per_patient:
+    n_hvg: 3000
+    n_pcs_computed: 20   # PCA components computed
+    n_pcs_used: 10       # of those, how many feed the neighbor graph
+    n_neighbors: 15
+    leiden_resolution: 0.2
+  umap_min_dist: 0.3
+  three_donor_figure: ["C160", "C172", "C168"]                 # UMAP_3Doners.pdf panel
+
+signature_scoring:
+  method: zscore_mean_of_genes   # z-score each gene across the scoring population, then mean across the signature's genes
+  layer: log_normalized          
+  scope:
+    cohort_level: global         # UMAP_Pelka_CXCR4+(.+-).ipynb: z-score across the whole population being plotted
+    per_patient: within_patient  # UMAP_Pelka_CXCR4+_Selected_Donors.ipynb / Palantir inputs: z-score within each donor's own cells 
+  gene_sets:
+    Notch_Sander:
+      source: "in-house (Medema lab), DOI 10.1016/j.ccell.2019.08.003"
+      genes: [JAG1, JAG2, DLL1, DLL3, DLL4, NOTCH1, NOTCH2, NOTCH3, NOTCH4, HES1, HES2, HEY1, HEY2, DTX1]
+    Fetal:
+      source: "Mustata et al., DOI 10.1016/j.celrep.2013.09.005 (full published signature)"
+      file: data/metadata/signatures/fetal_mustata.tsv
+    RSC:
+      source: "Gil Vazquez et al., DOI 10.1016/j.stem.2022.07.008"
+      file: data/metadata/signatures/rsc_gilvazquez.tsv
+    CBC:
+      source: "Gil Vazquez et al., DOI 10.1016/j.stem.2022.07.008"
+      file: data/metadata/signatures/cbc_gilvazquez.tsv
+    wnt_msigdb:
+      name: SANSOM_APC_TARGETS_UP
+      source: "MSigDB v2026.1 (C2)"
+      file: data/metadata/signatures/wnt_sansom_apc_targets_up.tsv
+    Fetal_curated:
+      source: "hand-curated"
+      genes: [ANXA1, ANXA3, CYR61, CTGF, LY6A, TACSTD2]
+    WNT_curated:
+      source: "hand-curated"
+      genes: [APCDD1, AXIN2, LGR5, NKD1, NOTUM]
+
+trajectory_palantir:
+  donor: C168   
+  n_diffusion_components: 15
+  knn: 30
+  num_waypoints: 1000
+  root_signature: Fetal_curated
+  root_top_n_cells: 20
+  terminal_signature: LGR5
+  terminal_selection: highest_expression
+  seed: 42
+  cellrank:
+    kernel: PseudotimeKernel
+
+mutation_calling:
+  non_synonymous_classes:   
+    - Missense_Mutation
+    - Nonsense_Mutation
+    - Nonstop_Mutation
+    - Frame_Shift_Del
+    - Frame_Shift_Ins
+    - In_Frame_Del
+    - In_Frame_Ins
+    - Splice_Site
+    - Translation_Start_Site
+  non_synonymous_classes_vep:   
+    - missense_variant
+    - stop_gained
+    - frameshift_variant
+    - splice_donor_variant
+    - splice_acceptor_variant
+    - splice_region_variant
+    - inframe_deletion
+    - inframe_insertion
+    - start_lost
+  wnt_wt_definition: "no non-synonymous mutation in APC AND no non-synonymous mutation in CTNNB1"
+  wnt_mut_definition: "non-synonymous mutation in APC and/or CTNNB1"
+  gene_symbol_dedup: first_occurrence   
+  tcga_wnt_wt_mutation_matrix: binary_mutation_matrix_filtered   
+
+gsva:
+  method: gsva
+  quartile_cutoff_high: 0.75   # NOTCH-high: > 75th percentile
+  quartile_cutoff_low: 0.25    # NOTCH-low: < 25th percentile
+  # interquartile-range tumors are excluded from binary survival comparisons
+  # for WNT-wt subgroup analyses, GSVA scores + quartile thresholds are recomputed within the WNT-wt subset only
+
+survival:
+  truncation_convention: "12 x 30-day months (banker's year), NOT calendar 365.25-day years"
+  tcga_truncation_days: 1800   # 5 years
+  nunes_truncation_days: 3600  # 10 years
+  endpoint: recurrence_free_survival
+  test: log_rank_two_sided
+
+boxplot_stats:
+  fbxw7_hes_test: t.test   
+
+software_versions:
+  python: "3.10.20"
+  r: "4.4.2"
+  scanpy: "1.11.5"
+  palantir: "1.4.4"        
+  cellrank: "2.0.7"
+  gsva: "2.0.7"
+  survival: "3.8-6"
+  survminer: "0.5.2"
+  tcgabiolinks: "2.34.1"   
